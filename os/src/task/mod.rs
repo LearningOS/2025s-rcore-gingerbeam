@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtPageNum, PageTableEntry, VirtAddr};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -133,6 +134,42 @@ impl TaskManager {
         inner.tasks[cur].change_program_brk(size)
     }
 
+    /// Read the count of syscall 'id' of the current task
+    pub fn read_syscall_count(&self, id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].syscall_cnt[id]
+    }
+
+    /// Increase the count of syscall 'id' of the current task by 1
+    pub fn increase_syscall_count(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].syscall_cnt[id] += 1;
+    }
+
+    /// Return the pte of the current task from a VPN
+    pub fn get_current_task_pte(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
+        let inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].memory_set.translate(vpn)
+    }
+
+    /// Create new MapArea in current task's memory set
+    /// Warning: MapArea takes the ownership of VirtAddrs
+    pub fn create_new_map_area(&self, start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].memory_set.insert_framed_area(start_va, end_va, perm);
+    }
+
+    /// Unmap a virtual page number from the current task's memory set
+    pub fn unmap_area(&self, vpn: VirtPageNum) {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].memory_set.unmap(vpn);
+    }
+
     /// Switch current `Running` task to the task we have found,
     /// or there is no `Ready` task and we can exit with all applications completed
     fn run_next_task(&self) {
@@ -201,4 +238,29 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Get the count of syscall 'id' of the current task
+pub fn read_syscall_count(id: usize) -> usize {
+    TASK_MANAGER.read_syscall_count(id)
+}
+
+/// Increase the syscall count by 1
+pub fn count_syscall(id: usize) {
+    TASK_MANAGER.increase_syscall_count(id);
+}
+
+/// Get the pte of the current task from a VPN
+pub fn get_current_task_pte(vpn: VirtPageNum) -> Option<PageTableEntry> {
+    TASK_MANAGER.get_current_task_pte(vpn)
+}
+
+/// Create new MapArea in current task's memory set
+pub fn create_new_map_area(start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) {
+    TASK_MANAGER.create_new_map_area(start_va, end_va, perm);
+}
+
+/// Unmap a virtual page number from the current task's memory set
+pub fn unmap_area(vpn: VirtPageNum) {
+    TASK_MANAGER.unmap_area(vpn);
 }

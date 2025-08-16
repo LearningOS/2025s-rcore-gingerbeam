@@ -233,6 +233,10 @@ impl MemorySet {
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.page_table.translate(vpn)
     }
+    /// Unmap a virtual page number from the page table
+    pub fn unmap(&mut self, vpn: VirtPageNum) {
+        self.page_table.unmap(vpn);
+    }
     /// shrink the area to new_end
     #[allow(unused)]
     pub fn shrink_to(&mut self, start: VirtAddr, new_end: VirtAddr) -> bool {
