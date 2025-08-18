@@ -1,14 +1,17 @@
 //! Process management syscalls
+
 use alloc::sync::Arc;
 
 use crate::{
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
+    mm::{translated_byte_buffer, translated_refmut, translated_str},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next,
-    },
+    }, timer::get_time_us,
 };
+
+use core::slice::{from_raw_parts_mut};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -105,12 +108,32 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
+    let us = get_time_us();
+    let time_val = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+
+    let mut tv_slice = unsafe {
+        from_raw_parts_mut(
+            &time_val as *const TimeVal as *mut u8,
+            core::mem::size_of::<TimeVal>()
+        )
+    };
+
+    let tv_buf = translated_byte_buffer(
+        current_user_token(),
+        ts as *const u8,
+        core::mem::size_of::<TimeVal>()
     );
-    -1
+
+    for buf in tv_buf {
+        buf.copy_from_slice(&tv_slice[0..buf.len()]);
+        tv_slice = &mut tv_slice[buf.len()..];
+    }
+
+    0
 }
 
 /// YOUR JOB: Implement mmap.
