@@ -318,6 +318,12 @@ impl MemorySet {
             false
         }
     }
+
+    /// remove a page in the page table according to a VPN
+    #[allow(unused)]
+    pub fn remove_page(&mut self, vpn: VirtPageNum) {
+        self.page_table.unmap(vpn);
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

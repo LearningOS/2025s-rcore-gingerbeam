@@ -71,6 +71,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Task stride
+    pub stride: usize,
+
+    /// Task priority
+    pub priority: usize,
 }
 
 impl TaskControlBlockInner {
@@ -135,6 +141,8 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride : 0,
+                    priority: 16,
                 })
             },
         };
@@ -216,6 +224,8 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    stride: parent_inner.stride,
+                    priority: parent_inner.priority,
                 })
             },
         });
@@ -229,6 +239,20 @@ impl TaskControlBlock {
         task_control_block
         // **** release child PCB
         // ---- release parent PCB
+    }
+
+    /// act like fork, but create new memeory_set, trap_cn_ppn, ... like exec
+    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> Arc<Self> {
+        let mut parent_inner = self.inner_exclusive_access();
+        // create tcb from elf data with tcb new
+        let task_control_block = Arc::new(TaskControlBlock::new(elf_data));
+        // add created tcb to this task's child
+        parent_inner.children.push(task_control_block.clone());
+        // set kernel sp
+        // let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
+        // trap_cx.kernel_sp = self.kernel_stack.get_top();
+        
+        task_control_block
     }
 
     /// get pid of process

@@ -7,10 +7,12 @@
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
+use crate::config::BIG_STRIDE;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
+use crate::mm::{VirtPageNum, VirtAddr, MapPermission, PageTableEntry};
 
 /// Processor management structure
 pub struct Processor {
@@ -61,6 +63,8 @@ pub fn run_tasks() {
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            // set task priority
+            task_inner.stride += BIG_STRIDE / task_inner.priority;
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -90,6 +94,27 @@ pub fn current_task() -> Option<Arc<TaskControlBlock>> {
 pub fn current_user_token() -> usize {
     let task = current_task().unwrap();
     task.get_user_token()
+}
+
+/// Create a new Map Area for the current task running on the processor
+pub fn create_new_map_area(start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) {
+    let tcb = current_task().unwrap();
+    let mut task = tcb.inner_exclusive_access();
+    task.memory_set.insert_framed_area(start_va, end_va, perm);
+}
+
+/// remove a page from the current runnning task
+pub fn remove_page(vpn: VirtPageNum) {
+    let tcb = current_task().unwrap();
+    let mut task = tcb.inner_exclusive_access();
+    task.memory_set.remove_page(vpn);
+}
+
+/// translate a vpn according to current running task's pagetable
+pub fn translate(vpn: VirtPageNum) -> Option<PageTableEntry>{
+    let tcb = current_task().unwrap();
+    let task = tcb.inner_exclusive_access();
+    return task.memory_set.translate(vpn)
 }
 
 ///Get the mutable reference to trap context of current task

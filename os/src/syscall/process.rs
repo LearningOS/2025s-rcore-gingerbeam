@@ -4,12 +4,14 @@
 use alloc::sync::Arc;
 
 use crate::{
-    fs::{open_file, OpenFlags},
-    mm::{translated_byte_buffer, translated_refmut, translated_str},
+    // loader::get_app_data_by_name,
+    config::PAGE_SIZE, fs::{open_file, OpenFlags},
+    mm::{translated_byte_buffer, translated_refmut, translated_str, MapPermission, VPNRange, VirtAddr},
     task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next,
-    }, timer::get_time_us,
+        add_task, create_new_map_area, current_task, current_user_token,
+        exit_current_and_run_next, remove_page, suspend_current_and_run_next, translate,
+    },
+    timer::get_time_us,
 };
 
 use core::slice::{from_raw_parts_mut};
@@ -137,21 +139,54 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 }
 
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
+    if start % PAGE_SIZE != 0 ||
+       port & !0x7 != 0 ||
+       port & 0x7 == 0 {
+        return -1;
+    }
+    
+    let start_va = VirtAddr::from(start).floor();
+    let end_va = VirtAddr::from(start + len).ceil();
+    let vpn_range = VPNRange::new(start_va, end_va);
+    for vpn in vpn_range {
+        // if vpn is already mapped, return -1
+        if let Some(pte) = translate(vpn) {
+            if pte.is_valid() {
+                return -1;
+            }
+        }
+    }
+
+    // convert port to MapPermission
+    let perm = MapPermission::from_bits_truncate((port << 1) as u8) | MapPermission::U;
+    create_new_map_area(start_va.into(), end_va.into(), perm);
+
+    0
 }
 
 /// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    if start % PAGE_SIZE != 0 {
+        return -1;
+    }
+
+    let start_va = VirtAddr::from(start).floor();
+    let end_va = VirtAddr::from(start + len).ceil();
+    let vpn_range = VPNRange::new(start_va, end_va);
+    for vpn in vpn_range {
+        if let Some(pte) = translate(vpn) {
+            if !pte.is_valid() {
+                return -1;
+            } else {
+                remove_page(vpn);
+            }
+        } else {
+            return -1;
+        }
+    }
+
+    0
 }
 
 /// change data segment size
@@ -166,19 +201,38 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_spawn(path: *const u8) -> isize {
+    trace!("kernel:pid[{}] sys_spawn", current_task().unwrap().pid.0);
+    let current_task = current_task().unwrap();
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
+        let data = app_inode.read_all();
+        let new_task = current_task.spawn(data.as_slice());
+        let pid = new_task.getpid();
+        let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
+        // return value
+        trap_cx.x[10] = 0;
+        // add the the new task to the task manager queue
+        add_task(new_task);
+        pid as isize
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
-pub fn sys_set_priority(_prio: isize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
+pub fn sys_set_priority(prio: isize) -> isize {
+    debug!(
+        "kernel:pid[{}] sys_set_priority",
         current_task().unwrap().pid.0
     );
-    -1
+    if prio >= 2 {
+        let current_task = current_task().unwrap();
+        let mut task_inner = current_task.inner_exclusive_access();
+        task_inner.priority = prio as usize;
+        prio
+    } else {
+        -1
+    }
 }
