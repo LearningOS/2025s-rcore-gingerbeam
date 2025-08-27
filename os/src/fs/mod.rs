@@ -5,8 +5,22 @@ mod stdio;
 
 use crate::mm::UserBuffer;
 
+
+use core::any::Any;
+/// This is from "https://www.zhihu.com/question/568998493"
+pub trait Downcast {
+    /// convert and type to Any
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<T: 'static> Downcast for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 /// trait File for all file types
-pub trait File: Send + Sync {
+pub trait File: Send + Sync + Downcast {
     /// the file readable?
     fn readable(&self) -> bool;
     /// the file writable?
@@ -30,7 +44,7 @@ pub struct Stat {
     /// number of hard links
     pub nlink: u32,
     /// unused pad
-    pad: [u64; 7],
+    pub pad: [u64; 7],
 }
 
 bitflags! {
@@ -46,5 +60,5 @@ bitflags! {
     }
 }
 
-pub use inode::{list_apps, open_file, OSInode, OpenFlags};
+pub use inode::{list_apps, link, link_count, find, unlink, link_count_id, open_file, OSInode, OpenFlags};
 pub use stdio::{Stdin, Stdout};

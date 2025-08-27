@@ -8,11 +8,12 @@ use super::File;
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
-use alloc::sync::Arc;
+use alloc::{sync::Arc};
 use alloc::vec::Vec;
 use bitflags::*;
 use easy_fs::{EasyFileSystem, Inode};
 use lazy_static::*;
+use core::{cell::RefMut};
 
 /// inode in memory
 /// A wrapper around a filesystem inode
@@ -53,6 +54,25 @@ impl OSInode {
         }
         v
     }
+
+    /// get the inner changable
+    pub fn inner_exclusive_access(&self) -> RefMut<'_, OSInodeInner> {
+        self.inner.exclusive_access()
+    }
+}
+
+impl OSInodeInner {
+    pub fn get_block_id(&self) -> usize {
+        self.inode.block_id()
+    }
+
+    pub fn get_block_offset(&self) -> usize {
+        self.inode.block_offset()
+    }
+
+    pub fn get_inode_id(&self) -> u32 {
+        self.inode.get_inode_id()
+    }
 }
 
 lazy_static! {
@@ -69,6 +89,31 @@ pub fn list_apps() {
         println!("{}", app);
     }
     println!("**************/");
+}
+
+/// Hard link
+pub fn link(old_path: &str, new_path: &str) -> Option<Arc<Inode>> {
+    ROOT_INODE.link(old_path, new_path)
+}
+
+/// Link counter
+pub fn link_count(name: &str) -> usize {
+    ROOT_INODE.link_count_name(name)
+}
+
+/// Link counter by id
+pub fn link_count_id(inode_id: u32) -> usize {
+    ROOT_INODE.link_count_id(inode_id)
+}
+
+/// Fina a inode in root
+pub fn find(name: &str) -> Option<Arc<Inode>> {
+    ROOT_INODE.find(name)
+}
+
+/// Unlink a hard link
+pub fn unlink(name: &str) -> isize {
+    ROOT_INODE.unlink(name)
 }
 
 bitflags! {
